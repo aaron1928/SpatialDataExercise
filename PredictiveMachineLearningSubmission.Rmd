@@ -1,0 +1,110 @@
+---
+title: "Predictive Machine Learning Project"
+author: "Aaron Kelly"
+date: "10/14/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Predicting Exercise Manner from Spatial Orientation Data
+
+A random forest model, controlled to prevent overfitting is applied to spatial orientation data to categorize exercise manner.  The data are first cleaned and then subset to relevant variables (the spatial orientation variables, without the timeseries and indexing variables).  A chunk of the data is broken off and split into a training and testing subset.  The random forest is trained and tested for accuracy.  Finally, the model is applied to a new set of data, generating predictions used in answering questions on a quiz. 
+
+
+```{r Generating Acceptable Predictions}
+#caret library is loaded in order to avail myself of the machine learning training functions it contains.
+library(caret)
+
+#The relevant data is loaded from its source into a data frame object. 
+data<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),na.strings=c("","NA"))
+  
+
+#The loaded data are cleaned up. 
+
+##An empty data frame object is created, having the same number of rows as that of the loaded data, but no columns.  
+  Data=as.data.frame(matrix(nrow=length(data[,1]),ncol=0))
+  
+##An object is created in which will be stored the names of columns from the loaded that are clean.  
+  Names<-c()
+  
+##Finally, a bit of action.  A loop that uses the index, "i", and goes from 1 to the number of columns in the loaded data.  Effectively, this loop will cycle through each of the columns of the loaded data and assess whether it is clean enough to use and, if so, will assemble it into the new data frame object with all the other clean columns.  This cleaning is done to ensure that the machine learning algorithm is basing its predictions on valid observations of variables and not merely placeholders for their absence.
+  for (i in 1:length(data[1,])){
+  
+    ###This is just a ratio or decimal that measures what percentage of a particular column has NAs.  
+    incompleteness<-sum(is.na(data[,i]))/length(data[,1])
+    
+    ###If the column is completely clean, then we put the name of column into the Names object, and we put that column into the empty, but long data object, Data. Then, we put the name of the column above it in the data object.  This gives us a clean version of the originally loaded data on which to run machine learning algorithms.  
+    if (incompleteness==0){
+      Names<-c(Names,colnames(data)[i])
+      Data<-data.frame(Data,data[,i])
+      names(Data)<-Names
+    }}
+  
+#Now that we have a clean version of the data, the indexing and timestamp columns are removed, because these constrain the predictions arbitrarily, and not purely on the basis of the spatial (gyroscopic) information that remains.
+  Data<-Data[,-(1:7)]
+  
+
+#Cutting off a random chunk of the data for training.  
+
+##Because the number of observations in the cleaned dataframe is quite large and the machine learning is computationally demanding, a sizable chunk of the data is randomly cut out and used for training and testing purposes.  Somewhat arbitrarily, 1/4th of the data is cut off from the rest and this 1/4th is then split into a training and testing set. 
+  
+  ###Partition is created, marking off 1/4th of the data.
+  chunkPart<-createDataPartition(Data$classe,p=1/4)[[1]]
+  
+  ###The partition created above is applied the clean datafram resulting in a random subset that is 1/4th of the original.
+  chunk<-Data[chunkPart,]
+  
+  ###The chunk is further partitioned into a training set consisting of 3/4 of the chunk = 3/16 of the original data, which is about 3,679 observations.
+  trainPart<-createDataPartition(chunk$classe, p=3/4)[[1]]
+  training<-chunk[trainPart,]
+  
+  ###The complement of the training set within chunk is stored as a testing set, which amounts to about 1/16 of the original data, which is about 1226 observations.
+  testing<-chunk[-trainPart,]
+  
+  
+#Creating Model on Training Subset
+
+##First, a parameter is set that will force the machine learning to use cross-validation, which will split the training data up randomly and run internal trainings and testings on each of the subsets and vote for the best.  This process reduces overfitting that may occur if the machine learning were trained on the entire set.  
+governer<-trainControl(method="cv",number=50)
+
+##Now, a random forest is trained because it is fundamentally a process for sorting into categories, which is the type of prediction that must be made, and is highly effective at this. 
+rfModel<-train(classe~.,method="rf",data=training, trControl=governer)
+
+##Once the model has been trained, it is applied to the testing set.
+rfPredict<-predict(rfModel,subset(testing, select=-c(classe)))
+
+##A logical vector is created that effectively counts the number of predictions that are correct.
+rfTrue<-rfPredict==testing$classe
+
+##The count of correct predictions is converted into a percentage which tells the accuracy of the predictions.
+rfEval<-sum(rfTrue)/length(testing$classe)*100
+
+##The measurement of the accuracy of the model is printed.
+print(rfEval)
+
+#Now that the model has been created and tested, it is applied to the important data (the quiz data).
+
+##The data to be used for final prediction are loaded into file.
+quizTest<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),na.strings=c("","NA"))
+
+##The data are cleaned, as before.  
+Names<-c()
+cleanquizTest<-as.data.frame(matrix(nrow=length(quizTest[,1]),ncol=0))
+
+for (i in 1:length(quizTest[1,])){
+
+  incompleteness<-(sum(is.na(quizTest[,i]))/length(quizTest[,1]))
+  if (incompleteness==0){
+    Names<-c(Names,colnames(quizTest)[i])
+    cleanquizTest<-data.frame(cleanquizTest,quizTest[,i])
+    names(cleanquizTest)<-Names
+  }
+}
+
+##The previously created model is applied to the quiz data, generating predictions, which are then printed.
+rfPredictQuiz<-predict(rfModel,cleanquizTest[,-60])
+print(rfPredictQuiz)
+```
